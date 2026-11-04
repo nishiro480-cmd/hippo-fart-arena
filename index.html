@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Hippo Fart Arena</title>
+<style>
+body{margin:0;overflow:hidden;background:#87ceeb;font-family:Arial}
+#ui{position:absolute;top:12px;left:0;width:100%;text-align:center;color:white;font-weight:bold;text-shadow:2px 2px 4px black;pointer-events:none}
+#controls{position:absolute;bottom:25px;width:100%;display:flex;justify-content:space-between;align-items:end;padding:0 25px;box-sizing:border-box}
+button{border:0;border-radius:50%;width:75px;height:75px;background:#ffffffaa;font-weight:bold;font-size:15px}
+#attack{background:#8c43e8;color:white;width:90px;height:90px}
+#status{font-size:13px}
+</style>
+</head>
+<body>
+<div id="ui">
+<h2>💨 HIPPO FART ARENA</h2>
+<div id="status">Connecting...</div>
+</div>
+<div id="controls">
+<button id="left">◀</button>
+<button id="right">▶</button>
+<button id="attack">FART 💨</button>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x83d9f5);
+scene.fog=new THREE.Fog(0x83d9f5,30,100);
+
+const camera=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,.1,200);
+camera.position.set(0,8,13);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xffffff,0x668855,2));
+const sun=new THREE.DirectionalLight(0xffffff,2);
+sun.position.set(5,12,8);
+scene.add(sun);
+
+const floor=new THREE.Mesh(
+new THREE.CircleGeometry(25,64),
+new THREE.MeshStandardMaterial({color:0x55b96b})
+);
+floor.rotation.x=-Math.PI/2;
+scene.add(floor);
+
+const players={};
+let myId=null;
+let x=0,z=0;
+let direction=0;
+
+function createHippo(color){
+ const group=new THREE.Group();
+ const body=new THREE.Mesh(
+ new THREE.SphereGeometry(0.9,32,24),
+ new THREE.MeshStandardMaterial({color,roughness:.8})
+ );
+ body.scale.set(1,1.05,1.2);
+ body.position.y=1;
+ group.add(body);
+
+ const head=new THREE.Mesh(
+ new THREE.SphereGeometry(.65,32,24),
+ new THREE.MeshStandardMaterial({color})
+ );
+ head.position.set(0,1.75,.65);
+ group.add(head);
+
+ const nose=new THREE.Mesh(
+ new THREE.SphereGeometry(.48,24,16),
+ new THREE.MeshStandardMaterial({color:0x9b7181})
+ );
+ nose.scale.set(1,.65,.65);
+ nose.position.set(0,1.65,1.15);
+ group.add(nose);
+
+ for(let i=-1;i<=1;i+=2){
+ const eye=new THREE.Mesh(
+ new THREE.SphereGeometry(.12,16,16),
+ new THREE.MeshStandardMaterial({color:0xffffff})
+ );
+ eye.position.set(i*.28,2.15,.95);
+ group.add(eye);
+ }
+ for(let i=-1;i<=1;i+=2){
+ const leg=new THREE.Mesh(
+ new THREE.CylinderGeometry(.2,.25,.55,16),
+ new THREE.MeshStandardMaterial({color})
+ );
+ leg.position.set(i*.55,.3,.35);
+ group.add(leg);
+ }
+ scene.add(group);
+ return group;
+}
+
+const me=createHippo(0x8b75cf);
+players.local=me;
+
+function addPlayer(id){
+ if(players[id])return;
+ players[id]=createHippo(0xd78caa);
+}
+
+function removePlayer(id){
+ if(players[id]){
+ scene.remove(players[id]);
+ delete players[id];
+ }
+}
+
+let socket=null;
+if(typeof io==="function"){
+ socket=io();
+ socket.on("connect",()=>{
+ myId=socket.id;
+ document.getElementById("status").textContent="Online!";
+ });
+ socket.on("players",data=>{
+ Object.keys(data).forEach(id=>{
+ if(id!==myId){
+ addPlayer(id);
+ players[id].position.set(data[id].x,0,data[id].z);
+ }
+ });
+ });
+ socket.on("playerMoved",data=>{
+ if(data.id!==myId){
+ addPlayer(data.id);
+ players[data.id].position.set(data.x,0,data.z);
+ }
+ });
+ socket.on("playerLeft",removePlayer);
+}else{
+ document.getElementById("status").textContent="Server not connected";
+}
+
+function move(){
+ x=Math.max(-20,Math.min(20,x));
+ z=Math.max(-20,Math.min(20,z));
+ me.position.set(x,0,z);
+ me.rotation.y=direction;
+ if(socket&&socket.connected){
+ socket.emit("move",{x,z,direction});
+ }
+}
+
+let moving=0;
+function hold(id,value){
+ const el=document.getElementById(id);
+ el.addEventListener("pointerdown",e=>{
+ e.preventDefault();moving=value;
+ });
+ el.addEventListener("pointerup",()=>moving=0);
+ el.addEventListener("pointerleave",()=>moving=0);
+ el.addEventListener("pointercancel",()=>moving=0);
+}
+hold("left",-1);
+hold("right",1);
+
+document.getElementById("attack").onclick=()=>{
+ if(socket&&socket.connected)socket.emit("fart");
+};
+
+function animate(){
+ requestAnimationFrame(animate);
+ if(moving!==0){
+ direction+=moving*.06;
+ x+=Math.sin(direction)*.13;
+ z+=Math.cos(direction)*.13;
+ move();
+ }
+ camera.position.x+=(x-camera.position.x)*.04;
+ camera.position.z+=(z+10-camera.position.z)*.04;
+ camera.lookAt(x,0,z);
+ renderer.render(scene,camera);
+}
+animate();
+
+addEventListener("resize",()=>{
+ camera.aspect=innerWidth/innerHeight;
+ camera.updateProjectionMatrix();
+ renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
